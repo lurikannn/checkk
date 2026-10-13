@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Отправка фото</title>
+    <style>
+      body { max-width: 34rem; margin: 3rem auto; padding: 0 1rem; font: 16px system-ui, sans-serif; }
+      video, img { display: block; width: 100%; max-height: 24rem; margin: 1rem 0; background: #eee; object-fit: contain; }
+      button { margin: .25rem .25rem .25rem 0; padding: .65rem 1rem; }
+      #status { min-height: 1.5em; }
+    </style>
+  </head>
+  <body>
+    <h1>Отправить фото</h1>
+    <p>Камера включится только после нажатия кнопки. Вы сможете посмотреть снимок; на сервер он попадёт только после нажатия «Отправить фото».</p>
+    <button id="start">Включить камеру</button>
+    <video id="video" autoplay playsinline hidden></video>
+    <button id="capture" hidden>Сделать снимок</button>
+    <img id="preview" alt="Предпросмотр снимка" hidden>
+    <button id="send" hidden>Отправить фото</button>
+    <button id="retake" hidden>Сделать другой снимок</button>
+    <p id="status" role="status" aria-live="polite"></p>
+    <canvas id="canvas" hidden></canvas>
+
+    <script>
+      const video = document.querySelector("#video");
+      const preview = document.querySelector("#preview");
+      const canvas = document.querySelector("#canvas");
+      const status = document.querySelector("#status");
+      let stream;
+      let photo;
+
+      function stopCamera() {
+        if (stream) stream.getTracks().forEach((track) => track.stop());
+        stream = undefined;
+        video.srcObject = null;
+      }
+
+      document.querySelector("#start").addEventListener("click", async () => {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ video: true });
+          video.srcObject = stream;
+          video.hidden = false;
+          document.querySelector("#capture").hidden = false;
+          status.textContent = "Камера включена. Сделайте снимок, когда будете готовы.";
+        } catch (error) {
+          status.textContent = `Не удалось включить камеру: ${error.message}`;
+        }
+      });
+
+      document.querySelector("#capture").addEventListener("click", () => {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        canvas.getContext("2d").drawImage(video, 0, 0);
+        canvas.toBlob((blob) => {
+          if (!blob) {
+            status.textContent = "Не удалось сделать снимок. Попробуйте ещё раз.";
+            return;
+          }
+          photo = blob;
+          preview.src = URL.createObjectURL(blob);
+          preview.hidden = false;
+          video.hidden = true;
+          document.querySelector("#capture").hidden = true;
+          document.querySelector("#send").hidden = false;
+          document.querySelector("#retake").hidden = false;
+          status.textContent = "Проверьте снимок. Он ещё не отправлен.";
+          stopCamera();
+        }, "image/jpeg", 0.9);
+      });
+
+      document.querySelector("#retake").addEventListener("click", async () => {
+        preview.hidden = true;
+        document.querySelector("#send").hidden = true;
+        document.querySelector("#retake").hidden = true;
+        document.querySelector("#start").click();
+      });
+
+      document.querySelector("#send").addEventListener("click", async (event) => {
+        const button = event.currentTarget;
+        button.disabled = true;
+        status.textContent = "Отправка…";
+        try {
+          const form = new FormData();
+          form.append("photo", photo, "photo.jpg");
+          const response = await fetch("/upload", { method: "POST", body: form });
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.error || "Ошибка отправки.");
+          status.textContent = result.message;
+          button.hidden = true;
+        } catch (error) {
+          status.textContent = `Не удалось отправить фото: ${error.message}`;
+          button.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>
